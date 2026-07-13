@@ -7,6 +7,15 @@ export const metadata = {
   description: "Игра на Next.js",
 };
 
+// Настройки для телефонов: запрещаем случайный зум щипком/двойным тапом,
+// чтобы не мешало при быстром нажатии кнопок управления.
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -14,7 +23,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body style={{ margin: 0, overscrollBehavior: "none" }}>{children}</body>
     </html>
   );
 }

@@ -21,16 +21,37 @@ export default function GameCanvas() {
   const [levelIndex, setLevelIndex] = useState(0);
   const [unlockedLevel, setUnlockedLevel] = useState(0);
   const [player, setPlayer] = useState({ x: START_X, y: START_Y, vy: 0, facing: 1 as 1 | -1 });
-  const level = LEVELS[levelIndex];
+  // Защита: если в браузере вдруг сохранён индекс уровня, которого больше
+  // нет (например, после изменения количества уровней) — тихо откатываемся
+  // на последний существующий, вместо падения игры с ошибкой.
+  const level = LEVELS[levelIndex] ?? LEVELS[LEVELS.length - 1];
   const [bones, setBones] = useState(level.bones.map((b) => ({ ...b, collected: false })));
   const [levelComplete, setLevelComplete] = useState(false);
   const keysRef = useRef<Record<string, boolean>>({});
   const onGroundRef = useRef(true);
   const levelCompleteRef = useRef(false);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  // Подгоняем масштаб игрового поля под ширину экрана (в том числе телефона),
+  // сохраняя внутри те же пиксельные координаты для физики и коллизий.
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+    const update = () => setScale(el.clientWidth / level.width);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("orientationchange", update);
+    };
+  }, [level.width]);
 
   // при первой загрузке — читаем сохранённый прогресс из localStorage
   useEffect(() => {
-    const saved = loadUnlockedLevel();
+    const saved = Math.min(Math.max(loadUnlockedLevel(), 0), LEVELS.length - 1);
     setUnlockedLevel(saved);
     setLevelIndex(saved);
   }, []);
@@ -41,8 +62,9 @@ export default function GameCanvas() {
 
   // при смене уровня — сбрасываем позицию собаки и косточки
   useEffect(() => {
+    const lv = LEVELS[levelIndex] ?? LEVELS[LEVELS.length - 1];
     setPlayer({ x: START_X, y: START_Y, vy: 0, facing: 1 });
-    setBones(LEVELS[levelIndex].bones.map((b) => ({ ...b, collected: false })));
+    setBones(lv.bones.map((b) => ({ ...b, collected: false })));
     setLevelComplete(false);
     onGroundRef.current = true;
   }, [levelIndex]);
@@ -80,7 +102,7 @@ export default function GameCanvas() {
       if (!levelCompleteRef.current) {
         setPlayer((p) => {
           const keys = keysRef.current;
-          const currentLevel = LEVELS[levelIndex];
+          const currentLevel = LEVELS[levelIndex] ?? LEVELS[LEVELS.length - 1];
           let { x, y, vy, facing } = p;
 
           if (keys["ArrowLeft"] || keys["a"] || keys["A"]) {
@@ -208,8 +230,8 @@ export default function GameCanvas() {
               disabled={!isUnlocked}
               onClick={() => setLevelIndex(i)}
               style={{
-                width: 32,
-                height: 32,
+                width: 36,
+                height: 36,
                 borderRadius: 8,
                 border: isCurrent ? "2px solid #5A3A22" : "1px solid #C9A876",
                 background: isUnlocked ? (isCurrent ? "#8B5E3C" : "#E8D3B0") : "#DDD3C4",
@@ -217,6 +239,8 @@ export default function GameCanvas() {
                 fontSize: 13,
                 fontWeight: 600,
                 cursor: isUnlocked ? "pointer" : "not-allowed",
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
               }}
             >
               {isUnlocked ? i + 1 : "🔒"}
@@ -226,63 +250,80 @@ export default function GameCanvas() {
       </div>
 
       <div
-        tabIndex={0}
+        ref={outerRef}
         style={{
           position: "relative",
-          width: level.width,
-          height: level.height,
-          maxWidth: "100%",
-          background: "linear-gradient(180deg, #F4E9D8 0%, #E8D3B0 100%)",
+          width: "100%",
+          // На телефоне влезает по ширине экрана, а на ноутбуке/десктопе
+          // может вырасти заметно крупнее исходных 900px.
+          maxWidth: 1300,
+          aspectRatio: `${level.width} / ${level.height}`,
+          margin: "0 auto",
           borderRadius: 16,
           overflow: "hidden",
           border: "3px solid #8B5E3C",
-          outline: "none",
+          background: "linear-gradient(180deg, #F4E9D8 0%, #E8D3B0 100%)",
+          touchAction: "none",
         }}
       >
-        <ScoreBoard score={score} total={bones.length} />
-        {level.platforms.map((p, i) => (
-          <Platform key={i} {...p} />
-        ))}
-        {bones.map((b, i) => (
-          <Bone key={i} {...b} />
-        ))}
-        <Dog x={player.x} y={player.y} facing={player.facing} isJumping={!onGroundRef.current} />
+        <div
+          tabIndex={0}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: level.width,
+            height: level.height,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+            outline: "none",
+          }}
+        >
+          <ScoreBoard score={score} total={bones.length} />
+          {level.platforms.map((p, i) => (
+            <Platform key={i} {...p} />
+          ))}
+          {bones.map((b, i) => (
+            <Bone key={i} {...b} />
+          ))}
+          <Dog x={player.x} y={player.y} facing={player.facing} isJumping={!onGroundRef.current} />
 
-        {levelComplete && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(58,38,22,0.85)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 14,
-              color: "#F4E9D8",
-              fontFamily: "system-ui, sans-serif",
-            }}
-          >
-            {isLastLevel ? (
-              <>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>🏆 Игра пройдена!</div>
-                <div style={{ fontSize: 15 }}>Собака собрала все косточки на всех 10 уровнях</div>
-                <button onClick={restartGame} style={btnStyle}>
-                  Начать заново
-                </button>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>
-                  🦴 Уровень {levelIndex + 1} пройден!
-                </div>
-                <button onClick={goNextLevel} style={btnStyle}>
-                  Следующий уровень →
-                </button>
-              </>
-            )}
-          </div>
-        )}
+          {levelComplete && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "rgba(58,38,22,0.85)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 14,
+                color: "#F4E9D8",
+                fontFamily: "system-ui, sans-serif",
+              }}
+            >
+              {isLastLevel ? (
+                <>
+                  <div style={{ fontSize: 28, fontWeight: 700 }}>🏆 Игра пройдена!</div>
+                  <div style={{ fontSize: 15 }}>Собака собрала все косточки на всех {LEVELS.length} уровнях</div>
+                  <button onClick={restartGame} style={btnStyle}>
+                    Начать заново
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 24, fontWeight: 700 }}>
+                    🦴 Уровень {levelIndex + 1} пройден!
+                  </div>
+                  <button onClick={goNextLevel} style={btnStyle}>
+                    Следующий уровень →
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 10 }}>
@@ -329,4 +370,6 @@ const btnStyle: React.CSSProperties = {
   color: "#3A2616",
   cursor: "pointer",
   userSelect: "none",
+  touchAction: "manipulation",
+  WebkitTapHighlightColor: "transparent",
 };

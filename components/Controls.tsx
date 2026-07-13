@@ -1,6 +1,6 @@
 "use client";
 // components/Controls.tsx
-// Кнопки для телефона. "use client" — потому что реагируют на нажатия.
+// Кнопки для телефона и мыши. "use client" — потому что реагируют на нажатия.
 
 type ControlsProps = {
   onLeftDown: () => void;
@@ -11,14 +11,20 @@ type ControlsProps = {
 };
 
 const btnStyle: React.CSSProperties = {
-  padding: "10px 20px",
-  fontSize: 18,
-  borderRadius: 10,
+  padding: "12px 22px",
+  fontSize: 20,
+  minWidth: 56,
+  minHeight: 56,
+  borderRadius: 12,
   border: "2px solid #8B5E3C",
   background: "#C9A876",
   color: "#3A2616",
   cursor: "pointer",
   userSelect: "none",
+  // Запрещаем браузеру интерпретировать нажатие как жест прокрутки/зума —
+  // без этого на телефоне палец мог случайно "утащить" страницу вместо прыжка.
+  touchAction: "none",
+  WebkitTapHighlightColor: "transparent",
 };
 
 export default function Controls({
@@ -31,22 +37,43 @@ export default function Controls({
   return (
     <div style={{ display: "flex", gap: 10 }}>
       <button
-        onTouchStart={onLeftDown}
-        onTouchEnd={onLeftUp}
+        onTouchStart={(e) => {
+          e.preventDefault();
+          onLeftDown();
+        }}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          onLeftUp();
+        }}
         onMouseDown={onLeftDown}
         onMouseUp={onLeftUp}
+        onMouseLeave={onLeftUp}
         style={btnStyle}
       >
         ◀
       </button>
-      <button onClick={onJump} style={btnStyle}>
+      <button
+        onTouchStart={(e) => {
+          e.preventDefault();
+          onJump();
+        }}
+        onClick={onJump}
+        style={btnStyle}
+      >
         ⬆ прыжок
       </button>
       <button
-        onTouchStart={onRightDown}
-        onTouchEnd={onRightUp}
+        onTouchStart={(e) => {
+          e.preventDefault();
+          onRightDown();
+        }}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          onRightUp();
+        }}
         onMouseDown={onRightDown}
         onMouseUp={onRightUp}
+        onMouseLeave={onRightUp}
         style={btnStyle}
       >
         ▶
