@@ -15,6 +15,11 @@ function getCtx() {
 function beep(freq: number, duration: number, type: OscillatorType = "sine", volume = 0.15) {
   const ctx = getCtx();
   if (!ctx) return;
+  // Браузер иногда "усыпляет" звук (suspended), если решил, что не было
+  // явного взаимодействия — принудительно "будим" его перед каждым звуком.
+  if (ctx.state === "suspended") {
+    ctx.resume();
+  }
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = type;
