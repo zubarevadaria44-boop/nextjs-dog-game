@@ -11,7 +11,7 @@ import ScoreBoard from "./ScoreBoard";
 import Controls from "./Controls";
 import { LEVELS, GRAVITY, JUMP_FORCE, MOVE_SPEED } from "../lib/level";
 import { loadUnlockedLevel, saveUnlockedLevel } from "../lib/progress";
-import { playJumpSound, playBoneSound, playLevelCompleteSound, playWinGameSound } from "../lib/sound";
+import { playJumpSound, playBoneSound, playLevelCompleteSound, playWinGameSound, unlockAudio } from "../lib/sound";
 
 const START_X = 40;
 const START_Y = 300;
@@ -59,6 +59,22 @@ export default function GameCanvas() {
   useEffect(() => {
     levelCompleteRef.current = levelComplete;
   }, [levelComplete]);
+
+  // На телефоне звук молчит, пока не "разбужен" прямо во время первого
+  // касания экрана — слушаем самое первое касание/клик где угодно на странице.
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio();
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("pointerdown", unlock);
+    };
+    window.addEventListener("touchstart", unlock, { once: true });
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("pointerdown", unlock);
+    };
+  }, []);
 
   // при смене уровня — сбрасываем позицию собаки и косточки
   useEffect(() => {
@@ -202,7 +218,7 @@ export default function GameCanvas() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, width: "100%" }}>
       <div
         style={{
           display: "flex",
@@ -256,7 +272,7 @@ export default function GameCanvas() {
           width: "100%",
           // На телефоне влезает по ширине экрана, а на ноутбуке/десктопе
           // может вырасти заметно крупнее исходных 900px.
-          maxWidth: 1300,
+          maxWidth: level.width,
           aspectRatio: `${level.width} / ${level.height}`,
           margin: "0 auto",
           borderRadius: 16,

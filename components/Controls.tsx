@@ -21,11 +21,19 @@ const btnStyle: React.CSSProperties = {
   color: "#3A2616",
   cursor: "pointer",
   userSelect: "none",
+  WebkitUserSelect: "none",
   // Запрещаем браузеру интерпретировать нажатие как жест прокрутки/зума —
   // без этого на телефоне палец мог случайно "утащить" страницу вместо прыжка.
   touchAction: "none",
   WebkitTapHighlightColor: "transparent",
-};
+  // На iOS долгое нажатие по умолчанию открывает меню "Копировать/Найти" —
+  // это его отключает.
+  WebkitTouchCallout: "none",
+} as React.CSSProperties;
+
+// Долгое нажатие на iOS Safari иногда всё равно пытается показать системное
+// меню выделения текста — глушим его на уровне события тоже.
+const blockContextMenu = (e: React.SyntheticEvent) => e.preventDefault();
 
 export default function Controls({
   onLeftDown,
@@ -45,6 +53,7 @@ export default function Controls({
           e.preventDefault();
           onLeftUp();
         }}
+        onContextMenu={blockContextMenu}
         onMouseDown={onLeftDown}
         onMouseUp={onLeftUp}
         onMouseLeave={onLeftUp}
@@ -57,6 +66,7 @@ export default function Controls({
           e.preventDefault();
           onJump();
         }}
+        onContextMenu={blockContextMenu}
         onClick={onJump}
         style={btnStyle}
       >
@@ -71,6 +81,7 @@ export default function Controls({
           e.preventDefault();
           onRightUp();
         }}
+        onContextMenu={blockContextMenu}
         onMouseDown={onRightDown}
         onMouseUp={onRightUp}
         onMouseLeave={onRightUp}

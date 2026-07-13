@@ -1,8 +1,8 @@
 // lib/sound.ts
 // Звуки через Web Audio API — генерируются на лету, без mp3/wav файлов.
-// Работает во всех современных браузерах.
 
 let audioCtx: AudioContext | null = null;
+let unlocked = false;
 
 function getCtx() {
   if (typeof window === "undefined") return null;
@@ -12,11 +12,33 @@ function getCtx() {
   return audioCtx;
 }
 
+// На телефонах (особенно iPhone/Safari) звук через Web Audio API молчит,
+// пока не "разбужен" внутри самого первого касания экрана — причём мало
+// просто вызвать resume(), нужно ещё и реально проиграть звук (пусть и
+// беззвучный) прямо в момент касания. Вызови эту функцию один раз на первое
+// touchstart/click в игре — дальше все звуки уже будут работать нормально.
+export function unlockAudio() {
+  if (unlocked) return;
+  const ctx = getCtx();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    ctx.resume();
+  }
+  // "тихий" щелчок нулевой громкости — специально, чтобы iOS засчитал
+  // это как реальное воспроизведение и снял блокировку со звука насовсем
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.01);
+  unlocked = true;
+}
+
 function beep(freq: number, duration: number, type: OscillatorType = "sine", volume = 0.15) {
   const ctx = getCtx();
   if (!ctx) return;
-  // Браузер иногда "усыпляет" звук (suspended), если решил, что не было
-  // явного взаимодействия — принудительно "будим" его перед каждым звуком.
   if (ctx.state === "suspended") {
     ctx.resume();
   }
