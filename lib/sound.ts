@@ -77,3 +77,15 @@ export function playWinGameSound() {
     setTimeout(() => beep(freq, 0.25, "triangle", 0.16), i * 140);
   });
 }
+
+export function playLifeLostSound() {
+  beep(220, 0.2, "sawtooth", 0.14);
+  setTimeout(() => beep(160, 0.25, "sawtooth", 0.14), 120);
+}
+
+export function playGameOverSound() {
+  const notes = [392, 330, 262, 196];
+  notes.forEach((freq, i) => {
+    setTimeout(() => beep(freq, 0.3, "sawtooth", 0.15), i * 160);
+  });
+}

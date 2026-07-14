@@ -1,40 +1,80 @@
 "use client";
 // components/GameCanvas.tsx
-// "Умный" компонент: здесь живёт состояние игры — какой уровень,
-// позиция собаки, прыжки, косточки, сохранённый прогресс и звуки.
+// "Умный" компонент: здесь живёт вся логика игры — уровень, позиция собаки,
+// прыжки, косточки, жизни, таймер, ловушки, прогресс и звуки.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Dog from "./Dog";
 import Platform from "./Platform";
 import Bone from "./Bone";
+import Spike from "./Spike";
 import ScoreBoard from "./ScoreBoard";
 import Controls from "./Controls";
 import { LEVELS, GRAVITY, JUMP_FORCE, MOVE_SPEED } from "../lib/level";
-import { loadUnlockedLevel, saveUnlockedLevel } from "../lib/progress";
-import { playJumpSound, playBoneSound, playLevelCompleteSound, playWinGameSound, unlockAudio } from "../lib/sound";
+import {
+  loadUnlockedLevel,
+  saveUnlockedLevel,
+  hasSeenIntro,
+  markIntroSeen,
+} from "../lib/progress";
+import {
+  playJumpSound,
+  playBoneSound,
+  playLevelCompleteSound,
+  playWinGameSound,
+  playLifeLostSound,
+  playGameOverSound,
+  unlockAudio,
+} from "../lib/sound";
 
 const START_X = 40;
 const START_Y = 300;
 const JUMP_KEYS = [" ", "ArrowUp", "w", "W"];
+const START_LIVES = 3;
 
 export default function GameCanvas() {
   const [levelIndex, setLevelIndex] = useState(0);
   const [unlockedLevel, setUnlockedLevel] = useState(0);
   const [player, setPlayer] = useState({ x: START_X, y: START_Y, vy: 0, facing: 1 as 1 | -1 });
   // Защита: если в браузере вдруг сохранён индекс уровня, которого больше
-  // нет (например, после изменения количества уровней) — тихо откатываемся
-  // на последний существующий, вместо падения игры с ошибкой.
+  // нет — тихо откатываемся на последний существующий, без падения игры.
   const level = LEVELS[levelIndex] ?? LEVELS[LEVELS.length - 1];
   const [bones, setBones] = useState(level.bones.map((b) => ({ ...b, collected: false })));
   const [levelComplete, setLevelComplete] = useState(false);
+
+  // Время на прохождение уровня растёт вместе со сложностью уровня.
+  const timeLimit = 45 + Math.floor(levelIndex / 2) * 8;
+  const [lives, setLives] = useState(START_LIVES);
+  const [timeLeft, setTimeLeft] = useState(timeLimit);
+  const [gameOver, setGameOver] = useState(false);
+  const [showIntro, setShowIntro] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(true); // по умолчанию считаем телефоном, пока не проверили
+
   const keysRef = useRef<Record<string, boolean>>({});
   const onGroundRef = useRef(true);
   const levelCompleteRef = useRef(false);
+  const gameOverRef = useRef(false);
+  const showIntroRef = useRef(false);
+  const hazardHitRef = useRef(false);
+  const invulnerableUntilRef = useRef(0);
+  const livesRef = useRef(START_LIVES);
   const outerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
-  // Подгоняем масштаб игрового поля под ширину экрана (в том числе телефона),
-  // сохраняя внутри те же пиксельные координаты для физики и коллизий.
+  // Показываем приветственное окно один раз при первом запуске
+  useEffect(() => {
+    setShowIntro(!hasSeenIntro());
+  }, []);
+
+  // Определяем, телефон это или ноутбук/десктоп — на телефоне оставляем
+  // нарисованные кнопки управления, на ноутбуке прячем (клавиатура и так понятна)
+  useEffect(() => {
+    const touch =
+      typeof window !== "undefined" &&
+      (("ontouchstart" in window) || navigator.maxTouchPoints > 0);
+    setIsTouchDevice(touch);
+  }, []);
+
   useEffect(() => {
     const el = outerRef.current;
     if (!el) return;
@@ -49,19 +89,20 @@ export default function GameCanvas() {
     };
   }, [level.width]);
 
-  // при первой загрузке — читаем сохранённый прогресс из localStorage
-  useEffect(() => {
-    const saved = Math.min(Math.max(loadUnlockedLevel(), 0), LEVELS.length - 1);
-    setUnlockedLevel(saved);
-    setLevelIndex(saved);
-  }, []);
-
   useEffect(() => {
     levelCompleteRef.current = levelComplete;
   }, [levelComplete]);
 
+  useEffect(() => {
+    gameOverRef.current = gameOver;
+  }, [gameOver]);
+
+  useEffect(() => {
+    showIntroRef.current = showIntro;
+  }, [showIntro]);
+
   // На телефоне звук молчит, пока не "разбужен" прямо во время первого
-  // касания экрана — слушаем самое первое касание/клик где угодно на странице.
+  // касания экрана.
   useEffect(() => {
     const unlock = () => {
       unlockAudio();
@@ -76,17 +117,58 @@ export default function GameCanvas() {
     };
   }, []);
 
-  // при смене уровня — сбрасываем позицию собаки и косточки
+  // при первой загрузке — читаем сохранённый прогресс из localStorage
+  useEffect(() => {
+    const saved = Math.min(Math.max(loadUnlockedLevel(), 0), LEVELS.length - 1);
+    setUnlockedLevel(saved);
+    setLevelIndex(saved);
+  }, []);
+
+  // при смене уровня — сбрасываем позицию собаки, косточки, жизни и таймер
   useEffect(() => {
     const lv = LEVELS[levelIndex] ?? LEVELS[LEVELS.length - 1];
     setPlayer({ x: START_X, y: START_Y, vy: 0, facing: 1 });
     setBones(lv.bones.map((b) => ({ ...b, collected: false })));
     setLevelComplete(false);
+    setGameOver(false);
+    setLives(START_LIVES);
+    livesRef.current = START_LIVES;
+    setTimeLeft(45 + Math.floor(levelIndex / 2) * 8);
     onGroundRef.current = true;
+    invulnerableUntilRef.current = performance.now() + 500;
   }, [levelIndex]);
 
+  // Теряем жизнь: если это была последняя — конец попытки (окно game over),
+  // иначе просто возвращаемся на старт уровня со свежим таймером.
+  const loseLife = useCallback(() => {
+    // Считаем жизни через обычную переменную (ref), а не через React state —
+    // это выполняется мгновенно и синхронно, без риска, что игровой цикл
+    // успеет "проскочить" ещё один кадр до того, как состояние обновится
+    // (именно это раньше иногда списывало сразу 2 жизни за одно падение).
+    const next = livesRef.current - 1;
+    livesRef.current = next;
+    invulnerableUntilRef.current = performance.now() + 900;
+    if (next <= 0) {
+      livesRef.current = 0;
+      setLives(0);
+      setGameOver(true);
+      playGameOverSound();
+      return;
+    }
+    playLifeLostSound();
+    setPlayer({ x: START_X, y: START_Y, vy: 0, facing: 1 });
+    setTimeLeft(timeLimit);
+    onGroundRef.current = true;
+    setLives(next);
+  }, [timeLimit]);
+
   const jump = useCallback(() => {
-    if (onGroundRef.current && !levelCompleteRef.current) {
+    if (
+      onGroundRef.current &&
+      !levelCompleteRef.current &&
+      !gameOverRef.current &&
+      !showIntroRef.current
+    ) {
       onGroundRef.current = false;
       setPlayer((p) => ({ ...p, vy: JUMP_FORCE }));
       playJumpSound();
@@ -112,14 +194,31 @@ export default function GameCanvas() {
     };
   }, [jump]);
 
+  // Обратный отсчёт времени на уровень
+  useEffect(() => {
+    if (levelComplete || gameOver || showIntro) return;
+    const id = setInterval(() => {
+      setTimeLeft((t) => {
+        if (t <= 1) {
+          loseLife();
+          return timeLimit;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [levelComplete, gameOver, showIntro, levelIndex, loseLife, timeLimit]);
+
+  // игровой цикл — движение, физика, столкновения с шипами и падение за экран
   useEffect(() => {
     let raf: number;
     const loop = () => {
-      if (!levelCompleteRef.current) {
+      if (!levelCompleteRef.current && !gameOverRef.current && !showIntroRef.current) {
         setPlayer((p) => {
           const keys = keysRef.current;
           const currentLevel = LEVELS[levelIndex] ?? LEVELS[LEVELS.length - 1];
           let { x, y, vy, facing } = p;
+          const prevY = y;
 
           if (keys["ArrowLeft"] || keys["a"] || keys["A"]) {
             x -= MOVE_SPEED;
@@ -135,9 +234,14 @@ export default function GameCanvas() {
 
           let landed = false;
           for (const plat of currentLevel.platforms) {
-            const dogBottom = y + 34;
+            const prevBottom = prevY + 34;
+            const newBottom = y + 34;
             const withinX = x + 44 > plat.x && x < plat.x + plat.w;
-            if (withinX && dogBottom >= plat.y && dogBottom <= plat.y + 16 && vy >= 0) {
+            // "Пролётная" проверка: если собака падает быстро, между кадрами
+            // она может проскочить мимо тонкой платформы — проверяем, не
+            // пересекла ли она полосу платформы за этот кадр целиком,
+            // а не только текущую (снэпшот) позицию.
+            if (withinX && vy >= 0 && prevBottom <= plat.y + 16 && newBottom >= plat.y) {
               y = plat.y - 34;
               vy = 0;
               landed = true;
@@ -146,20 +250,42 @@ export default function GameCanvas() {
           onGroundRef.current = landed;
 
           x = Math.max(0, Math.min(x, currentLevel.width - 44));
-          if (y > currentLevel.height + 100) {
-            x = START_X;
-            y = START_Y;
-            vy = 0;
+
+          // падение за нижний край или касание шипов — теряем жизнь
+          // (пропускаем проверку, пока действует короткая неуязвимость после
+          // предыдущего сброса позиции — иначе одно падение могло списать
+          // сразу несколько жизней подряд)
+          let hazard = false;
+          if (performance.now() >= invulnerableUntilRef.current) {
+            hazard = y > currentLevel.height + 100;
+            if (!hazard && currentLevel.spikes) {
+              for (const sp of currentLevel.spikes) {
+                const dogBottom = y + 34;
+                if (x + 44 > sp.x && x < sp.x + sp.w && dogBottom > sp.y && y < sp.y + sp.h) {
+                  hazard = true;
+                  break;
+                }
+              }
+            }
+          }
+          if (hazard) {
+            hazardHitRef.current = true;
+            return p; // не двигаем в этот кадр — позицию сбросит loseLife()
           }
 
           return { x, y, vy, facing };
         });
+
+        if (hazardHitRef.current) {
+          hazardHitRef.current = false;
+          loseLife();
+        }
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [levelIndex]);
+  }, [levelIndex, loseLife]);
 
   // сбор косточек + звук + завершение уровня + сохранение прогресса
   useEffect(() => {
@@ -208,13 +334,22 @@ export default function GameCanvas() {
     setPlayer({ x: START_X, y: START_Y, vy: 0, facing: 1 });
     setBones(level.bones.map((b) => ({ ...b, collected: false })));
     setLevelComplete(false);
+    setGameOver(false);
+    setLives(START_LIVES);
+    livesRef.current = START_LIVES;
+    setTimeLeft(timeLimit);
     onGroundRef.current = true;
+    invulnerableUntilRef.current = performance.now() + 500;
   };
   const restartGame = () => setLevelIndex(0);
   const resetProgress = () => {
     saveUnlockedLevel(0);
     setUnlockedLevel(0);
     setLevelIndex(0);
+  };
+  const dismissIntro = () => {
+    markIntroSeen();
+    setShowIntro(false);
   };
 
   return (
@@ -235,8 +370,28 @@ export default function GameCanvas() {
         Уровень {levelIndex + 1} / {LEVELS.length}
       </div>
 
+      {/* Жизни и таймер */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 18,
+          fontFamily: "system-ui, sans-serif",
+          fontSize: 18,
+        }}
+      >
+        <div>
+          {Array.from({ length: START_LIVES }).map((_, i) => (
+            <span key={i}>{i < lives ? "❤️" : "🖤"}</span>
+          ))}
+        </div>
+        <div style={{ color: timeLeft <= 10 ? "#B0413E" : "#5A3A22", fontWeight: 700 }}>
+          ⏱ {timeLeft}с
+        </div>
+      </div>
+
       {/* Выбор уровня — открыты только пройденные + следующий */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", maxWidth: 500 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", maxWidth: 560 }}>
         {LEVELS.map((_, i) => {
           const isUnlocked = i <= unlockedLevel;
           const isCurrent = i === levelIndex;
@@ -246,13 +401,13 @@ export default function GameCanvas() {
               disabled={!isUnlocked}
               onClick={() => setLevelIndex(i)}
               style={{
-                width: 36,
-                height: 36,
+                width: 32,
+                height: 32,
                 borderRadius: 8,
                 border: isCurrent ? "2px solid #5A3A22" : "1px solid #C9A876",
                 background: isUnlocked ? (isCurrent ? "#8B5E3C" : "#E8D3B0") : "#DDD3C4",
                 color: isUnlocked ? (isCurrent ? "#F4E9D8" : "#5A3A22") : "#A8A196",
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: 600,
                 cursor: isUnlocked ? "pointer" : "not-allowed",
                 touchAction: "manipulation",
@@ -270,9 +425,7 @@ export default function GameCanvas() {
         style={{
           position: "relative",
           width: "100%",
-          // На телефоне влезает по ширине экрана, а на ноутбуке/десктопе
-          // может вырасти заметно крупнее исходных 900px.
-          maxWidth: level.width,
+          maxWidth: 1300,
           aspectRatio: `${level.width} / ${level.height}`,
           margin: "0 auto",
           borderRadius: 16,
@@ -298,6 +451,9 @@ export default function GameCanvas() {
           <ScoreBoard score={score} total={bones.length} />
           {level.platforms.map((p, i) => (
             <Platform key={i} {...p} />
+          ))}
+          {(level.spikes ?? []).map((s, i) => (
+            <Spike key={i} {...s} />
           ))}
           {bones.map((b, i) => (
             <Bone key={i} {...b} />
@@ -339,21 +495,56 @@ export default function GameCanvas() {
               )}
             </div>
           )}
+
+          {gameOver && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "rgba(58,38,22,0.9)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 14,
+                color: "#F4E9D8",
+                fontFamily: "system-ui, sans-serif",
+                textAlign: "center",
+                padding: 16,
+              }}
+            >
+              <div style={{ fontSize: 26, fontWeight: 700 }}>😢 Жизни закончились</div>
+              <div style={{ fontSize: 15, maxWidth: 360 }}>
+                Уровень {levelIndex + 1} пока не пройден — но можно попробовать ещё раз со свежими
+                тремя жизнями!
+              </div>
+              <button onClick={restartLevel} style={btnStyle}>
+                Попробовать снова
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10 }}>
-        <Controls
-          onLeftDown={() => setKey("ArrowLeft", true)}
-          onLeftUp={() => setKey("ArrowLeft", false)}
-          onRightDown={() => setKey("ArrowRight", true)}
-          onRightUp={() => setKey("ArrowRight", false)}
-          onJump={jump}
-        />
+      {isTouchDevice && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <Controls
+            onLeftDown={() => setKey("ArrowLeft", true)}
+            onLeftUp={() => setKey("ArrowLeft", false)}
+            onRightDown={() => setKey("ArrowRight", true)}
+            onRightUp={() => setKey("ArrowRight", false)}
+            onJump={jump}
+          />
+          <button onClick={restartLevel} style={{ ...btnStyle, padding: "10px 16px", fontSize: 14 }}>
+            ↺ Заново
+          </button>
+        </div>
+      )}
+      {!isTouchDevice && (
         <button onClick={restartLevel} style={{ ...btnStyle, padding: "10px 16px", fontSize: 14 }}>
-          ↺ Заново
+          ↺ Начать уровень заново
         </button>
-      </div>
+      )}
 
       <button
         onClick={resetProgress}
@@ -370,9 +561,57 @@ export default function GameCanvas() {
       </button>
 
       <p style={{ color: "#8B5E3C", fontSize: 13, textAlign: "center", maxWidth: 500 }}>
-        Стрелки / A,D — движение, пробел или ↑ — прыжок. Собери все косточки, чтобы открыть
-        следующий уровень! Прогресс сохраняется автоматически.
+        {isTouchDevice
+          ? "Стрелки / A,D — движение, пробел или ↑ — прыжок."
+          : "Управление: стрелки или A/D — движение, пробел или ↑ — прыжок."}{" "}
+        Собери все косточки, избегай шипов и уложись в таймер! Прогресс сохраняется автоматически.
       </p>
+
+      {showIntro && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(58,38,22,0.92)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: "#F4E9D8",
+              borderRadius: 16,
+              padding: 28,
+              maxWidth: 420,
+              textAlign: "center",
+              color: "#3A2616",
+              fontFamily: "system-ui, sans-serif",
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            <div style={{ fontSize: 24, fontWeight: 700 }}>🐕 Платформер с собакой</div>
+            <div style={{ fontSize: 15, lineHeight: 1.5 }}>
+              У тебя есть <b>3 жизни ❤️❤️❤️</b> на каждую попытку прохождения уровня.
+              <br />
+              На уровень даётся ограниченное <b>время ⏱</b> — успей собрать все косточки!
+              <br />
+              Берегись <b>шипов</b> — их касание стоит жизни.
+              <br />
+              {isTouchDevice
+                ? "Управляй кнопками внизу экрана."
+                : "Управляй стрелками (или A/D) и пробелом для прыжка."}
+            </div>
+            <button onClick={dismissIntro} style={{ ...btnStyle, alignSelf: "center" }}>
+              Начать игру!
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
