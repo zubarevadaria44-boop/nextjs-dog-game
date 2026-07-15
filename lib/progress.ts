@@ -45,3 +45,23 @@ export function markIntroSeen() {
     // игнорируем
   }
 }
+
+const BONE_COLOR_KEY = "dog-platformer-bone-color";
+
+export function loadBoneColor(): string {
+  if (typeof window === "undefined") return "pink";
+  try {
+    return window.localStorage.getItem(BONE_COLOR_KEY) ?? "pink";
+  } catch {
+    return "pink";
+  }
+}
+
+export function saveBoneColor(color: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BONE_COLOR_KEY, color);
+  } catch {
+    // игнорируем
+  }
+}

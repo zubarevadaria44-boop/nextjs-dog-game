@@ -6,7 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Dog from "./Dog";
 import Platform from "./Platform";
-import Bone from "./Bone";
+import Bone, { BONE_COLORS } from "./Bone";
 import Spike from "./Spike";
 import ScoreBoard from "./ScoreBoard";
 import Controls from "./Controls";
@@ -16,6 +16,8 @@ import {
   saveUnlockedLevel,
   hasSeenIntro,
   markIntroSeen,
+  loadBoneColor,
+  saveBoneColor,
 } from "../lib/progress";
 import {
   playJumpSound,
@@ -49,6 +51,8 @@ export default function GameCanvas() {
   const [gameOver, setGameOver] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(true); // по умолчанию считаем телефоном, пока не проверили
+  const [boneColor, setBoneColor] = useState("pink");
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   const keysRef = useRef<Record<string, boolean>>({});
   const onGroundRef = useRef(true);
@@ -64,6 +68,7 @@ export default function GameCanvas() {
   // Показываем приветственное окно один раз при первом запуске
   useEffect(() => {
     setShowIntro(!hasSeenIntro());
+    setBoneColor(loadBoneColor());
   }, []);
 
   // Определяем, телефон это или ноутбук/десктоп — на телефоне оставляем
@@ -351,6 +356,10 @@ export default function GameCanvas() {
     markIntroSeen();
     setShowIntro(false);
   };
+  const selectBoneColor = (key: string) => {
+    setBoneColor(key);
+    saveBoneColor(key);
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, width: "100%" }}>
@@ -456,7 +465,7 @@ export default function GameCanvas() {
             <Spike key={i} {...s} />
           ))}
           {bones.map((b, i) => (
-            <Bone key={i} {...b} />
+            <Bone key={i} {...b} colorKey={boneColor} />
           ))}
           <Dog x={player.x} y={player.y} facing={player.facing} isJumping={!onGroundRef.current} />
 
@@ -560,6 +569,41 @@ export default function GameCanvas() {
         Сбросить весь прогресс
       </button>
 
+      <button
+        onClick={() => setShowColorPicker((v) => !v)}
+        style={{
+          background: "none",
+          border: "none",
+          color: "#A8824F",
+          fontSize: 12,
+          textDecoration: "underline",
+          cursor: "pointer",
+        }}
+      >
+        🎨 Сменить цвет косточек
+      </button>
+
+      {showColorPicker && (
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+          {BONE_COLORS.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => selectBoneColor(c.key)}
+              title={c.label}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: c.fill,
+                border: boneColor === c.key ? "3px solid #3A2616" : `2px solid ${c.border}`,
+                cursor: "pointer",
+                touchAction: "manipulation",
+              }}
+            />
+          ))}
+        </div>
+      )}
+
       <p style={{ color: "#8B5E3C", fontSize: 13, textAlign: "center", maxWidth: 500 }}>
         {isTouchDevice
           ? "Стрелки / A,D — движение, пробел или ↑ — прыжок."
@@ -605,6 +649,29 @@ export default function GameCanvas() {
               {isTouchDevice
                 ? "Управляй кнопками внизу экрана."
                 : "Управляй стрелками (или A/D) и пробелом для прыжка."}
+            </div>
+            <div>
+              <div style={{ fontSize: 14, marginBottom: 8, fontWeight: 600 }}>
+                🎨 Выбери цвет косточек:
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                {BONE_COLORS.map((c) => (
+                  <button
+                    key={c.key}
+                    onClick={() => selectBoneColor(c.key)}
+                    title={c.label}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: "50%",
+                      background: c.fill,
+                      border: boneColor === c.key ? "3px solid #3A2616" : `2px solid ${c.border}`,
+                      cursor: "pointer",
+                      touchAction: "manipulation",
+                    }}
+                  />
+                ))}
+              </div>
             </div>
             <button onClick={dismissIntro} style={{ ...btnStyle, alignSelf: "center" }}>
               Начать игру!
